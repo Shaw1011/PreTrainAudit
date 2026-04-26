@@ -26,6 +26,7 @@ venv.bak/
 *.arrow
 *.db
 *.duckdb
+!*requirements.txt
 
 # Ignore test data to be absolutely sure no test data is pushed
 test data/
