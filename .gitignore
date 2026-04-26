@@ -29,6 +29,7 @@ venv.bak/
 
 # Ignore tests folder to be absolutely sure no test data is pushed
 tests/
+test data/
 
 # OS generated files
 .DS_Store
