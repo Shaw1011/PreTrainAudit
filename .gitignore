@@ -27,8 +27,7 @@ venv.bak/
 *.db
 *.duckdb
 
-# Ignore tests folder to be absolutely sure no test data is pushed
-tests/
+# Ignore test data to be absolutely sure no test data is pushed
 test data/
 
 # OS generated files

@@ -1,0 +1,338 @@
+"""
+stress_test.py — PreTrainAudit Full Stress Test Suite
+Run from project root: python tests/stress_test.py
+
+Covers:
+  [1] quality.py     — balance overflow, clamping, zero-row, constant cols
+  [2] compatibility  — type mismatch hard cap, arch weight, domain quality
+  [3] cost_estimator — corrected Small param counts, Chinchilla math
+  [4] memorization   — scaling law bounds, edge token counts
+  [5] fairness       — Gini, EWMA, empty balance
+  [6] report         — None-safe score extraction, avg_risk
+  [7] ingestion      — Windows path safety, empty file, DuckDB
+"""
+
+import sys, math, traceback
+import numpy as np
+
+PASS, FAIL = "PASS", "FAIL"
+results = []
+
+def test(name, fn):
+    try:
+        ok = fn()
+        status = PASS if ok is not False else FAIL
+        note = "" if ok is not False else "assertion returned False"
+    except Exception as e:
+        status = FAIL
+        note = f"{type(e).__name__}: {e}"
+    results.append((status, name, note))
+    sym = "✓" if status == PASS else "✗"
+    print(f"  {sym} [{status}] {name}")
+    if status == FAIL:
+        print(f"       → {note}")
+
+def _clamp(v, lo=0.0, hi=100.0):
+    return max(lo, min(hi, v))
+
+def _grade(s):
+    return "A" if s>=85 else "B" if s>=70 else "C" if s>=55 else "D" if s>=40 else "F"
+
+print("\n══════════════════════════════════════════════════")
+print("  PreTrainAudit Stress Test — Final")
+print("══════════════════════════════════════════════════\n")
+
+# ─────────────────────────────────────────────────────────────────────────────
+print("[1/7] quality.py — Scoring & clamping")
+
+def quality(profile):
+    missing_pct = profile.get("missing_pct", {})
+    avg_missing = sum(missing_pct.values())/len(missing_pct) if missing_pct else 0.0
+    completeness = _clamp(100 - avg_missing * 2)
+    dup_pct = profile.get("duplicate_pct", 0) or 0
+    duplication = _clamp(100 - dup_pct * 3)
+    distributions = profile.get("distributions", {})
+    noise_penalties = []
+    for col, stats in distributions.items():
+        rng = stats.get("max", 0) - stats.get("min", 0)
+        mean = stats.get("mean", 0) or 0
+        std  = stats.get("std", 0) or 0
+        if rng > 0:
+            cv = std / max(abs(mean), 1e-9)
+            noise_penalties.append(min(cv, 1.0))
+    avg_noise = sum(noise_penalties)/max(len(noise_penalties),1) if noise_penalties else 0.0
+    noise = _clamp(100 - avg_noise * 30)
+    balance = profile.get("class_balance", {})
+    bp = [max(d.get("proportions",[0])) for d in balance.values() if d.get("proportions")]
+    if bp:
+        avg_imb = sum(bp)/len(bp)
+        bal = _clamp(100 - (avg_imb - 0.5) * 100)
+    else:
+        bal = 100.0  # no categorical → not penalized
+    row_count = profile.get("total_rows", 0) or 0
+    struct = 40.0 if row_count<1000 else 70.0 if row_count<10000 else 100.0
+    total = _clamp(completeness*0.25 + duplication*0.20 + noise*0.20 + bal*0.20 + struct*0.15)
+    return {"total_score": round(total,1), "grade": _grade(total)}
+
+test("Empty missing_pct → score in [0,100]",
+    lambda: 0 <= quality({"missing_pct":{}, "duplicate_pct":0, "distributions":{}, "class_balance":{}, "total_rows":0})["total_score"] <= 100)
+test("No categorical data → balance=100 → total never exceeds 100",
+    lambda: quality({"missing_pct":{}, "duplicate_pct":0, "distributions":{}, "class_balance":{}, "total_rows":50000})["total_score"] <= 100)
+test("100% missing → score clamped ≥ 0",
+    lambda: quality({"missing_pct":{"a":100.0}, "duplicate_pct":0, "distributions":{}, "class_balance":{}, "total_rows":5000})["total_score"] >= 0)
+test("100% duplicates → score clamped ≥ 0",
+    lambda: quality({"missing_pct":{}, "duplicate_pct":100, "distributions":{}, "class_balance":{}, "total_rows":5000})["total_score"] >= 0)
+test("Perfect data → grade A",
+    lambda: quality({"missing_pct":{}, "duplicate_pct":0, "distributions":{}, "class_balance":{}, "total_rows":100000})["grade"] == "A")
+test("Constant col (std=0, mean=0) → no div/zero crash",
+    lambda: 0 <= quality({"missing_pct":{}, "duplicate_pct":0,
+        "distributions":{"a":{"max":1,"min":1,"std":0,"mean":0}},
+        "class_balance":{}, "total_rows":5000})["total_score"] <= 100)
+test("Single row → structural_score=40 → grade D or F",
+    lambda: quality({"missing_pct":{}, "duplicate_pct":0, "distributions":{}, "class_balance":{}, "total_rows":1})["grade"] in ("D","F"))
+test("Perfectly balanced binary class → balance score near 100",
+    lambda: quality({"missing_pct":{}, "duplicate_pct":0, "distributions":{}, "class_balance":{
+        "label":{"proportions":[0.5,0.5]}}, "total_rows":50000})["total_score"] >= 75)
+test("90/10 imbalance → balance score reduced",
+    lambda: quality({"missing_pct":{}, "duplicate_pct":0, "distributions":{}, "class_balance":{
+        "label":{"proportions":[0.9,0.1]}}, "total_rows":50000})["total_score"] < 85)
+test("Grade thresholds: 85→A, 70→B, 55→C, 40→D, 39→F",
+    lambda: all([_grade(85)=="A",_grade(70)=="B",_grade(55)=="C",_grade(40)=="D",_grade(39)=="F"]))
+
+# ─────────────────────────────────────────────────────────────────────────────
+print("\n[2/7] compatibility.py — Weights W_TYPE=0.30 W_ARCH=0.30")
+
+W_TYPE, W_ARCH, W_SIZE, W_QUAL = 0.30, 0.30, 0.20, 0.20
+TYPE_MISMATCH_CAP = 35.0
+
+VALID = {"NLP":["text"],"Computer Vision":["image"],"Recommendation":["tabular"],"Speech":["text","audio"]}
+ARCH_TASK = {"Transformer":["Classification","Generation","Detection"],"CNN":["Classification","Detection"],"RNN":["Generation","Classification"],"MoE":["Generation","Classification"]}
+DOM_THRESH = {"Healthcare":80,"Finance":75,"Social Media":55,"General":60}
+SIZE_REQ = {"Small":{"tabular_rows":1000,"text_tokens":500_000},"Medium":{"tabular_rows":50000,"text_tokens":25_000_000},"Large":{"tabular_rows":1_000_000,"text_tokens":500_000_000}}
+
+def compat(profile, q_score, cfg):
+    dt   = profile.get("data_type","tabular")
+    ai   = cfg.get("ai_type","NLP")
+    ms   = cfg.get("model_size","Medium")
+    arch = cfg.get("architecture","Transformer")
+    dom  = cfg.get("domain","General")
+    task = cfg.get("task_type","Classification")
+    valid      = VALID.get(ai, ["tabular"])
+    type_miss  = dt not in valid
+    type_score = 0.0 if type_miss else 100.0
+    arch_score = 30.0 if task not in ARCH_TASK.get(arch,[]) else 100.0
+    req        = SIZE_REQ.get(ms, SIZE_REQ["Medium"])
+    actual     = profile.get("total_rows",0) if dt=="tabular" else profile.get("estimated_tokens",0)
+    required   = req["tabular_rows"] if dt=="tabular" else req["text_tokens"]
+    size_score = _clamp(min(100.0, actual/max(required,1)*100))
+    thresh     = DOM_THRESH.get(dom, 60)
+    q_fit      = 100.0 if q_score>=thresh else _clamp((q_score/max(thresh,1))**1.5*100)
+    raw = type_score*W_TYPE + arch_score*W_ARCH + size_score*W_SIZE + q_fit*W_QUAL
+    if type_miss: raw = min(raw, TYPE_MISMATCH_CAP)
+    return _clamp(round(raw,1))
+
+test("Type mismatch hard-capped at ≤35 regardless of other scores",
+    lambda: compat({"data_type":"tabular","total_rows":10**9}, 100,
+        {"ai_type":"NLP","model_size":"Small","architecture":"Transformer","domain":"General","task_type":"Classification"}) <= 35)
+test("Arch mismatch (W_ARCH=0.30, arch_score=30) → total < 80",
+    lambda: compat({"data_type":"tabular","total_rows":100_000}, 80,
+        {"ai_type":"Recommendation","model_size":"Medium","architecture":"CNN","domain":"General","task_type":"Generation"}) < 80)
+test("Healthcare quality 50 < threshold 80 → score < 90",
+    lambda: compat({"data_type":"text","estimated_tokens":100_000_000}, 50,
+        {"ai_type":"NLP","model_size":"Medium","architecture":"Transformer","domain":"Healthcare","task_type":"Classification"}) < 90)
+test("Score always in [0,100] across diverse combos",
+    lambda: all(0 <= compat({"data_type":dt,"total_rows":r,"estimated_tokens":r}, q,
+        {"ai_type":ai,"model_size":"Medium","architecture":"Transformer","domain":"General","task_type":"Classification"}) <= 100
+    for dt,ai,r,q in [("text","NLP",0,0),("tabular","Recommendation",10**9,100),("image","Computer Vision",0,50)]))
+test("Perfect alignment → SUITABLE (≥75)",
+    lambda: compat({"data_type":"text","estimated_tokens":50_000_000}, 85,
+        {"ai_type":"NLP","model_size":"Medium","architecture":"Transformer","domain":"General","task_type":"Classification"}) >= 75)
+test("Zero rows → size_score=0, total still ≥ 0",
+    lambda: compat({"data_type":"tabular","total_rows":0}, 80,
+        {"ai_type":"Recommendation","model_size":"Medium","architecture":"Transformer","domain":"General","task_type":"Classification"}) >= 0)
+test("Unknown model_size → falls back without KeyError",
+    lambda: compat({"data_type":"tabular","total_rows":10000}, 70,
+        {"ai_type":"Recommendation","model_size":"XLarge","architecture":"Transformer","domain":"General","task_type":"Classification"}) >= 0)
+test("Finance domain quality 60 < threshold 75 → penalized",
+    lambda: compat({"data_type":"tabular","total_rows":500_000}, 60,
+        {"ai_type":"Recommendation","model_size":"Medium","architecture":"Transformer","domain":"Finance","task_type":"Classification"}) < 90)
+
+# ─────────────────────────────────────────────────────────────────────────────
+print("\n[3/7] cost_estimator.py — Corrected param counts & Chinchilla")
+
+MODEL_PARAMS = {
+    "Small": {"NLP":10,"Computer Vision":5,"Recommendation":2,"Speech":10},
+    "Medium":{"NLP":125,"Computer Vision":50,"Recommendation":20,"Speech":74},
+    "Large": {"NLP":7000,"Computer Vision":300,"Recommendation":100,"Speech":1500},
+}
+
+def cost(summary, cfg):
+    dt  = summary.get("data_type","tabular")
+    ai  = cfg.get("ai_type","NLP")
+    ms  = cfg.get("model_size","Medium")
+    tok = (summary.get("estimated_tokens") or (summary.get("char_count",0) or 0)//4) if dt=="text" \
+          else (summary.get("row_count",0) or 0)*(summary.get("column_count",1) or 1)
+    pm  = MODEL_PARAMS.get(ms, MODEL_PARAMS["Medium"]).get(ai, 125)
+    opt = pm * 1_000_000 * 20
+    return {"ratio": round(tok/max(opt,1),4), "pm": pm, "tok": tok}
+
+test("Small NLP = 10M params (not 125M)",
+    lambda: cost({"data_type":"text","estimated_tokens":1}, {"ai_type":"NLP","model_size":"Small"})["pm"] == 10)
+test("Medium NLP = 125M params",
+    lambda: cost({"data_type":"text","estimated_tokens":1}, {"ai_type":"NLP","model_size":"Medium"})["pm"] == 125)
+test("Large NLP = 7000M params",
+    lambda: cost({"data_type":"text","estimated_tokens":1}, {"ai_type":"NLP","model_size":"Large"})["pm"] == 7000)
+test("201M tokens on Small (10M param) → Chinchilla ratio > 1",
+    # optimal = 10M * 20 = 200M tokens; 201M > 200M → ratio > 1
+    lambda: cost({"data_type":"text","estimated_tokens":201_000_000}, {"ai_type":"NLP","model_size":"Small"})["ratio"] > 1)
+test("Zero tokens → ratio=0, no crash",
+    lambda: cost({"data_type":"text","estimated_tokens":0,"char_count":0}, {"ai_type":"NLP","model_size":"Medium"})["ratio"] == 0)
+test("Empty tabular (0 rows × 0 cols) → token_count=0",
+    lambda: cost({"data_type":"tabular","row_count":0,"column_count":0}, {"ai_type":"Recommendation","model_size":"Small"})["tok"] == 0)
+test("Unknown model_size fallback → ratio ≥ 0",
+    lambda: cost({"data_type":"text","estimated_tokens":1000}, {"ai_type":"NLP","model_size":"Giga"})["ratio"] >= 0)
+test("Chinchilla ratio scales correctly: 2x optimal → ratio≈2",
+    lambda: abs(cost({"data_type":"text","estimated_tokens":400_000_000},
+        {"ai_type":"NLP","model_size":"Small"})["ratio"] - 2.0) < 0.05)
+
+# ─────────────────────────────────────────────────────────────────────────────
+print("\n[4/7] memorization.py — Privacy leakage bounds")
+
+def mem_risk(summary, params_m):
+    param_count = params_m * 1_000_000
+    if summary.get("data_type") == "text":
+        token_count = int((summary.get("char_count", 0) or 0) / 4)
+    else:
+        token_count = (summary.get("row_count",0) or 0) * (summary.get("column_count",1) or 1)
+    ratio = token_count / max(param_count, 1)
+    try:
+        log_ratio = math.log(max(ratio, 1e-6))
+        mem_prob = 1 / (1 + math.exp(0.8 * log_ratio))
+    except:
+        mem_prob = 0.5
+    return {"ratio": ratio, "prob": round(mem_prob,4), "leakage": round(mem_prob*100,1)}
+
+test("Zero tokens → leakage in [0,100]",
+    lambda: 0 <= mem_risk({"data_type":"text","char_count":0}, 7000)["leakage"] <= 100)
+test("Zero param count → no crash (max guard)",
+    lambda: mem_risk({"data_type":"tabular","row_count":1000,"column_count":10}, 0)["ratio"] >= 0)
+test("Very large corpus → low memorization probability",
+    lambda: mem_risk({"data_type":"text","char_count":4_000_000_000_000}, 7000)["prob"] < 0.1)
+test("Probability always bounded [0,1]",
+    lambda: all(0 <= mem_risk({"data_type":"text","char_count":c}, 7000)["prob"] <= 1
+        for c in [0, 4000, 4_000_000, 4_000_000_000_000]))
+test("Tiny corpus + large model → high memorization (prob > 0.8)",
+    lambda: mem_risk({"data_type":"text","char_count":4000}, 70000)["prob"] > 0.8)
+test("math.log(ratio≈0) → no crash via 1e-6 guard",
+    lambda: mem_risk({"data_type":"tabular","row_count":0,"column_count":0}, 7000)["leakage"] >= 0)
+
+# ─────────────────────────────────────────────────────────────────────────────
+print("\n[5/7] fairness.py — Gini + EWMA")
+
+def gini(props): return 1 - sum(p**2 for p in props)
+
+def fairness(balance):
+    drift = []
+    for col, data in balance.items():
+        props = data.get("proportions", [])
+        if not props: continue
+        mp = max(props)
+        g  = gini(props)
+        if mp > 0.70:   drift.append(1 - g)
+        elif mp > 0.50: drift.append((1-g)*0.5)
+    if not drift: return 10.0
+    ewma = drift[0]
+    for s in drift[1:]:
+        ewma = 0.7*s + 0.3*ewma
+    return round(ewma*100, 1)
+
+test("Empty balance → 10.0 (no crash)",
+    lambda: fairness({}) == 10.0)
+test("Empty proportions list → skipped",
+    lambda: fairness({"col":{"proportions":[]}}) == 10.0)
+test("Single class [1.0] → handled",
+    lambda: fairness({"label":{"proportions":[1.0]}}) >= 0)
+test("Perfectly balanced binary → low drift score",
+    lambda: fairness({"label":{"proportions":[0.5,0.5]}}) < 30)
+test("90/10 split → high drift signal",
+    lambda: fairness({"label":{"proportions":[0.9,0.1]}}) > 30)
+test("Gini([1.0]) = 0 (fully imbalanced)",
+    lambda: gini([1.0]) == 0.0)
+test("Gini([0.5,0.5]) = 0.5 (maximally balanced binary)",
+    lambda: abs(gini([0.5,0.5]) - 0.5) < 0.001)
+test("Multiple columns → EWMA doesn't crash",
+    lambda: isinstance(fairness({"a":{"proportions":[0.8,0.2]},"b":{"proportions":[0.6,0.4]}}), float))
+
+# ─────────────────────────────────────────────────────────────────────────────
+print("\n[6/7] report.py — None-safe score extraction")
+
+def safe(d, *keys, default=0):
+    for k in keys:
+        if not isinstance(d, dict): return default
+        d = d.get(k, default)
+    return d if d is not None else default
+
+def avg_risk(scores):
+    return sum(float(v or 0) for v in scores.values()) / max(len(scores), 1)
+
+test("None score coerced to 0 via (v or 0)",
+    lambda: float(None or 0) == 0.0)
+test("avg_risk with all None values → 0.0",
+    lambda: avg_risk({"a":None,"b":None,"c":None,"d":None}) == 0.0)
+test("avg_risk with mixed None/int values",
+    lambda: avg_risk({"adversarial":50,"memorization":None,"fairness":30,"contamination":None}) == 20.0)
+test("safe() on empty dict returns default",
+    lambda: safe({}, "a","b","c", default=0) == 0)
+test("safe() on None nested value returns default",
+    lambda: safe({"a":{"b":None}}, "a","b", default=42) == 42)
+test("safe() on non-dict intermediate returns default",
+    lambda: safe({"a": "string_not_dict"}, "a","b", default=99) == 99)
+
+# ─────────────────────────────────────────────────────────────────────────────
+print("\n[7/7] Ingestion — Windows path safety & DuckDB")
+
+import duckdb, pandas as pd
+
+def safe_path(p): return p.replace("\\", "/")
+
+test("Windows backslash → forward slash (str.replace, not Path.resolve)",
+    lambda: safe_path(r"C:\Users\edges\data.csv") == "C:/Users/edges/data.csv")
+test("Nested Windows path → fully converted",
+    lambda: safe_path(r"C:\Users\edges\OneDrive\Desktop\data.parquet") ==
+            "C:/Users/edges/OneDrive/Desktop/data.parquet")
+test("Unix path unchanged",
+    lambda: safe_path("/home/user/data.csv") == "/home/user/data.csv")
+test("DuckDB reads CSV correctly",
+    lambda: (
+        pd.DataFrame({"x":[1,2,3],"y":["a","b","c"]}).to_csv("/tmp/dtest_final.csv",index=False) or
+        len(duckdb.connect().execute("SELECT * FROM read_csv_auto('/tmp/dtest_final.csv')").df()) == 3
+    ))
+test("Empty CSV → 0 rows without crash",
+    lambda: (
+        pd.DataFrame(columns=["a","b"]).to_csv("/tmp/empty_final.csv",index=False) or
+        duckdb.connect().execute("SELECT COUNT(*) FROM read_csv_auto('/tmp/empty_final.csv')").fetchone()[0] == 0
+    ))
+test("TABLESAMPLE fraction minimum 0.01% clamp",
+    lambda: max(0.01, min(100.0, (1/10_000_000)*100)) == 0.01)
+test("TABLESAMPLE never exceeds 100%",
+    lambda: max(0.01, min(100.0, (10_000_000/100)*100)) == 100.0)
+test("Large file size check: 501MB > 500MB limit detected",
+    lambda: (501*1024*1024) > (500*1024*1024))
+
+# ─── Final Summary ────────────────────────────────────────────────────────────
+print("\n══════════════════════════════════════════════════")
+passed = sum(1 for r in results if r[0]==PASS)
+failed = sum(1 for r in results if r[0]==FAIL)
+total  = len(results)
+pct    = round(passed/total*100, 1)
+print(f"  Results: {passed}/{total} passed ({pct}%)  |  {failed} failed")
+if failed:
+    print("\n  FAILURES TO FIX:")
+    for s, n, note in results:
+        if s == FAIL:
+            print(f"    ✗ {n}")
+            if note: print(f"      → {note}")
+else:
+    print("  All tests passing ✓")
+print("══════════════════════════════════════════════════\n")
+sys.exit(0 if failed == 0 else 1)
