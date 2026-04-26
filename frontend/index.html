@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PreTrainAudit — Dataset Risk Intelligence</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.26.0/plotly.min.js"></script>
+<style>
+:root{--bg:#080c10;--surface:#0e1419;--surface2:#141c24;--border:#1e2d3d;--accent:#00d4ff;--accent2:#ff6b35;--accent3:#39ff14;--danger:#ff3b5c;--warn:#ffbe00;--text:#c9d8e8;--text-dim:#4a6278;--text-bright:#eef4fa;--font-mono:'JetBrains Mono',monospace;--font-display:'Syne',sans-serif}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--font-mono);font-size:13px;line-height:1.6;min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px);background-size:40px 40px;opacity:.15;pointer-events:none;z-index:0}
+header{position:sticky;top:0;z-index:100;background:rgba(8,12,16,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 28px;height:54px}
+.logo{font-family:var(--font-display);font-size:17px;font-weight:800;color:var(--text-bright);display:flex;align-items:center;gap:10px}
+.logo span{color:var(--accent)}
+.logo-badge{font-family:var(--font-mono);font-size:10px;background:var(--accent);color:var(--bg);padding:2px 7px;letter-spacing:1px}
+nav{display:flex;gap:2px}
+nav button{background:none;border:none;color:var(--text-dim);font-family:var(--font-mono);font-size:11px;letter-spacing:1px;text-transform:uppercase;padding:6px 12px;cursor:pointer;transition:color .2s;border-bottom:2px solid transparent}
+nav button:hover,nav button.active{color:var(--accent)}
+nav button.active{border-bottom-color:var(--accent)}
+.header-status{font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:8px}
+.status-dot{width:7px;height:7px;border-radius:50%;background:var(--text-dim)}
+.status-dot.active{background:var(--accent3);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+main{position:relative;z-index:1;max-width:1440px;margin:0 auto;padding:28px 28px 80px}
+.page{display:none}.page.active{display:block}
+.upload-zone{border:2px dashed var(--border);background:var(--surface);padding:52px 32px;text-align:center;cursor:pointer;transition:all .3s}
+.upload-zone:hover,.upload-zone.dragover{border-color:var(--accent);background:rgba(0,212,255,.04)}
+.upload-icon{font-size:44px;margin-bottom:14px;display:block}
+.upload-zone h2{font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--text-bright);margin-bottom:6px}
+.upload-zone p{color:var(--text-dim);margin-bottom:18px;font-size:12px}
+.formats{display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap}
+.format-tag{font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:3px 10px;border:1px solid var(--border);color:var(--text-dim)}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:9px 20px;font-family:var(--font-mono);font-size:11px;letter-spacing:1px;text-transform:uppercase;border:none;cursor:pointer;transition:all .2s}
+.btn-primary{background:var(--accent);color:var(--bg);font-weight:700}.btn-primary:hover{background:#7df3ff}
+.btn-ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}.btn-ghost:hover{background:rgba(0,212,255,.08)}
+.card{background:var(--surface);border:1px solid var(--border);padding:18px 22px}
+.card-title{font-family:var(--font-display);font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-dim);margin-bottom:12px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.metric{background:var(--surface2);border:1px solid var(--border);padding:16px;text-align:center}
+.metric-value{font-family:var(--font-display);font-size:28px;font-weight:800;color:var(--text-bright);line-height:1;margin-bottom:4px;word-break:break-all}
+.metric-label{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text-dim)}
+.gauge-container{display:flex;flex-direction:column;align-items:center;padding:16px}
+.gauge-ring{width:130px;height:130px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-bottom:10px}
+.gauge-inner{width:96px;height:96px;border-radius:50%;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center}
+.gauge-score{font-family:var(--font-display);font-size:24px;font-weight:800;line-height:1}
+.gauge-label{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text-dim)}
+.risk-badge{display:inline-flex;align-items:center;padding:3px 10px;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700}
+.risk-LOW{background:rgba(57,255,20,.1);color:var(--accent3);border:1px solid rgba(57,255,20,.3)}
+.risk-MEDIUM{background:rgba(255,190,0,.1);color:var(--warn);border:1px solid rgba(255,190,0,.3)}
+.risk-HIGH{background:rgba(255,107,53,.1);color:var(--accent2);border:1px solid rgba(255,107,53,.3)}
+.risk-CRITICAL{background:rgba(255,59,92,.1);color:var(--danger);border:1px solid rgba(255,59,92,.3)}
+.risk-UNKNOWN,.risk-NONE{background:rgba(74,98,120,.1);color:var(--text-dim);border:1px solid var(--border)}
+.mismatch-banner{padding:12px 18px;border:1px solid var(--danger);background:rgba(255,59,92,.07);display:flex;gap:12px;margin-bottom:14px}
+.mismatch-banner.MEDIUM{border-color:var(--warn);background:rgba(255,190,0,.06)}
+.mismatch-banner.LOW{border-color:var(--accent2);background:rgba(255,107,53,.05)}
+.mismatch-icon{font-size:20px;flex-shrink:0}
+.mismatch-title{font-size:12px;font-weight:700;color:var(--danger);margin-bottom:3px}
+.mismatch-banner.MEDIUM .mismatch-title{color:var(--warn)}
+.domain-bar-row{display:flex;align-items:center;gap:10px;padding:4px 0;border-bottom:1px solid rgba(30,45,61,.4)}
+.domain-bar-label{width:130px;font-size:11px;color:var(--text);flex-shrink:0}
+.domain-bar-track{flex:1;height:3px;background:var(--border)}
+.domain-bar-fill{height:100%}
+.domain-bar-val{width:55px;text-align:right;font-size:11px;color:var(--text-dim)}
+.issue-list{list-style:none}
+.issue-item{padding:8px 0;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:flex-start;font-size:12px}
+.issue-item:last-child{border-bottom:none}
+.issue-marker{width:6px;height:6px;border-radius:50%;flex-shrink:0;margin-top:6px}
+.marker-critical{background:var(--danger)}.marker-warning{background:var(--warn)}.marker-ok{background:var(--accent3)}
+.score-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(30,45,61,.4)}
+.score-row-label{flex:1;font-size:11px;color:var(--text);text-transform:capitalize}
+.score-row-val{font-family:var(--font-display);font-size:14px;font-weight:700;width:56px;text-align:right}
+.score-row-bar{width:90px;height:3px;background:var(--border)}
+.score-row-fill{height:100%}
+.rec-item{display:flex;gap:10px;padding:8px 12px;border-left:2px solid var(--accent);background:rgba(0,212,255,.03);margin-bottom:6px;font-size:12px}
+.rec-index{color:var(--accent);font-weight:700;flex-shrink:0;font-size:11px}
+.verdict-banner{padding:16px 20px;border:1px solid var(--border);display:flex;align-items:center;gap:16px}
+.verdict-icon{font-size:26px}
+.verdict-title{font-family:var(--font-display);font-size:17px;font-weight:800;margin-bottom:3px}
+.verdict-msg{font-size:12px;color:var(--text-dim)}
+.verdict-READY{border-color:var(--accent3);background:rgba(57,255,20,.05)}
+.verdict-CONDITIONALLY_READY{border-color:var(--warn);background:rgba(255,190,0,.05)}
+.verdict-NOT_READY{border-color:var(--danger);background:rgba(255,59,92,.05)}
+.domain-group-card{background:var(--surface2);border:1px solid var(--border);padding:14px 18px;margin-bottom:10px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form-group{display:flex;flex-direction:column;gap:4px}
+.form-label{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--text-dim)}
+select,input[type="number"]{background:var(--surface2);border:1px solid var(--border);color:var(--text-bright);font-family:var(--font-mono);font-size:12px;padding:8px 12px;width:100%;appearance:none;outline:none;transition:border-color .2s}
+select:focus,input:focus{border-color:var(--accent)}
+select option{background:var(--surface)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;padding:7px 10px;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text-dim);border-bottom:1px solid var(--border);background:var(--surface2)}
+td{padding:8px 10px;border-bottom:1px solid rgba(30,45,61,.5);color:var(--text)}
+tr:hover td{background:rgba(0,212,255,.02)}
+.loading-overlay{display:none;position:fixed;inset:0;background:rgba(8,12,16,.88);backdrop-filter:blur(4px);z-index:500;align-items:center;justify-content:center;flex-direction:column;gap:16px}
+.loading-overlay.active{display:flex}
+.loader-ring{width:48px;height:48px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--text-dim)}
+#toast{position:fixed;bottom:24px;right:24px;z-index:600;padding:10px 16px;font-size:12px;letter-spacing:1px;display:none;border-left:3px solid var(--accent);background:var(--surface);color:var(--text-bright);max-width:380px}
+.section-heading{display:flex;align-items:baseline;gap:12px;margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+.section-heading h2{font-family:var(--font-display);font-size:19px;font-weight:700;color:var(--text-bright)}
+.section-heading p{font-size:11px;color:var(--text-dim)}
+.mt-8{margin-top:8px}.mt-16{margin-top:16px}.mt-24{margin-top:24px}.mb-8{margin-bottom:8px}.mb-16{margin-bottom:16px}
+.flex{display:flex}.items-center{align-items:center}.justify-between{justify-content:space-between}
+.gap-8{gap:8px}.gap-16{gap:16px}
+.text-accent{color:var(--accent)}.text-dim{color:var(--text-dim)}.text-bright{color:var(--text-bright)}
+.text-danger{color:var(--danger)}.text-warn{color:var(--warn)}.text-ok{color:var(--accent3)}
+.hidden{display:none!important}
+@media(max-width:900px){.grid-2,.grid-3,.grid-4,.form-grid{grid-template-columns:1fr}nav{display:none}}
+</style>
+</head>
+<body>
+<div class="loading-overlay" id="loading"><div class="loader-ring"></div><div class="loading-text" id="loading-text">Processing...</div></div>
+<div id="toast"></div>
+
+<header>
+  <div class="logo">PreTrain<span>Audit</span><span class="logo-badge">v1.1</span></div>
+  <nav>
+    <button class="active" onclick="showPage('upload')">Upload</button>
+    <button onclick="showPage('profile')">Profile</button>
+    <button onclick="showPage('risks')">Risk Audit</button>
+    <button onclick="showPage('multi')">Multi-Domain</button>
+    <button onclick="showPage('config')">AI Config</button>
+    <button onclick="showPage('report')">Report</button>
+    <button onclick="showPage('simulate')">Simulate</button>
+  </nav>
+  <div class="header-status"><div class="status-dot" id="status-dot"></div><span id="status-text">No dataset loaded</span></div>
+</header>
+
+<main>
+
+<!-- UPLOAD -->
+<div class="page active" id="page-upload">
+  <div class="section-heading"><h2>Dataset Ingestion</h2><p>Upload your dataset to begin the pre-training risk audit</p></div>
+
+  <div class="upload-zone" id="drop-zone">
+    <span class="upload-icon">⬡</span>
+    <h2>Drop Dataset Here</h2>
+    <p>or click to browse your files</p>
+    <button class="btn btn-primary" id="browse-btn">Select File</button>
+    <div class="formats mt-16">
+      <span class="format-tag">CSV</span><span class="format-tag">Parquet</span>
+      <span class="format-tag">JSONL</span><span class="format-tag">TXT</span>
+      <span class="format-tag">XLSX</span>
+    </div>
+    <input type="file" id="file-input" style="display:none" accept=".csv,.parquet,.jsonl,.txt,.xlsx,.xls,.json">
+  </div>
+
+  <!-- Connection check -->
+  <div id="conn-status" class="mt-8" style="font-size:11px;color:var(--text-dim);text-align:center"></div>
+
+  <div id="upload-summary" class="hidden mt-24">
+    <div class="section-heading"><h2>Dataset Overview</h2></div>
+    <div class="grid-4 mb-8" id="summary-metrics"></div>
+    <div id="domain-detection-card" class="card mt-16 hidden">
+      <div class="card-title">Auto-Detected Domain</div>
+      <div id="domain-detection-content"></div>
+    </div>
+    <div class="card mt-16"><div class="card-title">Sample Rows / Lines</div><div id="sample-table-wrap" style="overflow-x:auto"></div></div>
+    <div class="mt-16 flex gap-16">
+      <button class="btn btn-primary" onclick="runProfile()">Run Full Profile →</button>
+      <button class="btn btn-ghost" onclick="runMultiDomain()">Multi-Domain Analysis →</button>
+    </div>
+  </div>
+</div>
+
+<!-- PROFILE -->
+<div class="page" id="page-profile">
+  <div class="section-heading"><h2>Data Profiling</h2><p>Statistical characterization and visualization</p></div>
+  <div id="profile-content"><p class="text-dim">Upload a dataset first, then click Run Full Profile.</p></div>
+</div>
+
+<!-- RISKS -->
+<div class="page" id="page-risks">
+  <div class="section-heading"><h2>Risk Audit</h2><p>Adversarial · Memorization · Fairness · Contamination</p></div>
+  <div id="risks-content">
+    <p class="text-dim">Upload a dataset first.</p>
+    <div class="mt-16"><button class="btn btn-primary" onclick="runAllRisks()">Run Risk Audit →</button></div>
+  </div>
+</div>
+
+<!-- MULTI-DOMAIN -->
+<div class="page" id="page-multi">
+  <div class="section-heading"><h2>Multi-Domain Analysis</h2><p>Segment mixed datasets · per-group quality & sufficiency</p></div>
+  <div id="multi-content">
+    <p class="text-dim">Upload a CSV or Parquet dataset first.</p>
+    <div class="mt-16"><button class="btn btn-primary" onclick="runMultiDomain()">Run Multi-Domain Analysis →</button></div>
+  </div>
+</div>
+
+<!-- AI CONFIG -->
+<div class="page" id="page-config">
+  <div class="section-heading"><h2>AI Configuration</h2><p>Select your target model architecture</p></div>
+  <div id="domain-mismatch-banner" class="hidden"></div>
+  <div class="card">
+    <div class="form-grid">
+      <div class="form-group"><label class="form-label">AI Type</label><select id="ai-type"><option>NLP</option><option>Computer Vision</option><option>Recommendation</option><option>Speech</option></select></div>
+      <div class="form-group"><label class="form-label">Model Size</label><select id="model-size"><option>Small</option><option selected>Medium</option><option>Large</option></select></div>
+      <div class="form-group"><label class="form-label">Architecture</label><select id="architecture"><option selected>Transformer</option><option>CNN</option><option>RNN</option><option>MoE</option></select></div>
+      <div class="form-group"><label class="form-label">Domain</label><select id="domain" onchange="liveCheckDomain()"><option selected>General</option><option>Healthcare</option><option>Finance</option><option>Social Media</option></select></div>
+      <div class="form-group"><label class="form-label">Task Type</label><select id="task-type"><option selected>Classification</option><option>Generation</option><option>Detection</option><option>Regression</option></select></div>
+      <div class="form-group"><label class="form-label">Params (Millions)</label><input type="number" id="param-count" value="7000" min="1"></div>
+    </div>
+    <div class="mt-24"><button class="btn btn-primary" onclick="runCompatibility()">Evaluate Compatibility →</button></div>
+  </div>
+  <div id="compat-result" class="hidden mt-24"></div>
+  <div id="cost-result" class="hidden mt-16"></div>
+</div>
+
+<!-- REPORT -->
+<div class="page" id="page-report">
+  <div class="section-heading"><h2>Full Audit Report</h2><p>Aggregated findings and recommendations</p></div>
+  <div id="report-content">
+    <p class="text-dim">Run compatibility evaluation first.</p>
+    <div class="mt-16"><button class="btn btn-primary" onclick="generateReport()">Generate Report →</button></div>
+  </div>
+</div>
+
+<!-- SIMULATE -->
+<div class="page" id="page-simulate">
+  <div class="section-heading"><h2>What-If Simulation</h2><p>Adjust config and instantly see score changes</p></div>
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">Modify Configuration</div>
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">AI Type</label><select id="sim-ai-type"><option>NLP</option><option>Computer Vision</option><option>Recommendation</option><option>Speech</option></select></div>
+        <div class="form-group"><label class="form-label">Model Size</label><select id="sim-model-size"><option>Small</option><option selected>Medium</option><option>Large</option></select></div>
+        <div class="form-group"><label class="form-label">Architecture</label><select id="sim-arch"><option selected>Transformer</option><option>CNN</option><option>RNN</option><option>MoE</option></select></div>
+        <div class="form-group"><label class="form-label">Domain</label><select id="sim-domain"><option selected>General</option><option>Healthcare</option><option>Finance</option><option>Social Media</option></select></div>
+        <div class="form-group"><label class="form-label">Task Type</label><select id="sim-task"><option selected>Classification</option><option>Generation</option><option>Detection</option><option>Regression</option></select></div>
+        <div class="form-group"><label class="form-label">Params (M)</label><input type="number" id="sim-params" value="7000" min="1"></div>
+      </div>
+      <div class="mt-16"><button class="btn btn-primary" onclick="runSimulation()">Run Simulation →</button></div>
+    </div>
+    <div class="card" id="sim-result-panel"><div class="card-title">Simulation Results</div><p class="text-dim">Results appear here.</p></div>
+  </div>
+</div>
+
+</main>
+
+<script>
+const API = 'http://localhost:8000';
+let sessionId = null, currentSummary = null, currentProfile = null, currentQuality = null, currentDomainDetection = null;
+
+// ── Boot: check backend connection ────────────────────────────────────────────
+(async function checkConnection() {
+  const el = document.getElementById('conn-status');
+  try {
+    const res = await fetch(API + '/health', { method: 'GET' });
+    if (res.ok) {
+      const d = await res.json();
+      el.textContent = `Backend connected ✓  |  modules loaded: ${d.modules_loaded ? d.modules_loaded.length : '?'}`;
+      el.style.color = 'var(--accent3)';
+    } else {
+      el.textContent = 'Backend responded with error — check server logs.';
+      el.style.color = 'var(--warn)';
+    }
+  } catch (e) {
+    el.innerHTML = '⚠ Cannot reach backend at ' + API + '<br>Make sure start.bat is running and the server started successfully.';
+    el.style.color = 'var(--danger)';
+  }
+})();
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  const pg = document.getElementById('page-' + name);
+  if (pg) pg.classList.add('active');
+  document.querySelectorAll('nav button').forEach(b => {
+    if (b.textContent.toLowerCase().replace(/\s/g,'').startsWith(name.slice(0,4))) b.classList.add('active');
+  });
+}
+
+// ── File input wiring (explicit, no inline onclick) ───────────────────────────
+document.getElementById('browse-btn').addEventListener('click', function(e) {
+  e.stopPropagation();
+  document.getElementById('file-input').click();
+});
+
+document.getElementById('drop-zone').addEventListener('click', function() {
+  document.getElementById('file-input').click();
+});
+
+document.getElementById('file-input').addEventListener('change', function() {
+  if (this.files && this.files[0]) handleFileUpload(this.files[0]);
+});
+
+const dz = document.getElementById('drop-zone');
+dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('dragover'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+dz.addEventListener('drop', e => {
+  e.preventDefault();
+  dz.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFileUpload(file);
+});
+
+// ── Upload ────────────────────────────────────────────────────────────────────
+async function handleFileUpload(file) {
+  if (!file) return;
+  toast('Uploading: ' + file.name + ' (' + Math.round(file.size / 1024) + ' KB)...');
+  showLoading('Ingesting dataset...');
+
+  const form = new FormData();
+  form.append('file', file);
+
+  let res, data;
+  try {
+    res  = await fetch(API + '/upload', { method: 'POST', body: form });
+    data = await res.json();
+  } catch (e) {
+    hideLoading();
+    toast('Cannot reach backend. Is start.bat running? Error: ' + e.message, true);
+    return;
+  }
+
+  if (!res.ok) {
+    hideLoading();
+    toast('Upload failed: ' + (data.detail || res.statusText), true);
+    return;
+  }
+
+  sessionId      = data.session_id;
+  currentSummary = data.summary;
+  renderSummary(data.summary, file.name);
+  setStatus(true, file.name);
+  toast('Dataset loaded successfully: ' + file.name);
+
+  // Auto domain detection (non-blocking, best-effort)
+  hideLoading();
+  runDomainDetection();
+}
+
+function renderSummary(s, filename) {
+  document.getElementById('upload-summary').classList.remove('hidden');
+
+  const isText = s.data_type === 'text';
+  const pairs = isText
+    ? [['Data Type','TEXT'],['Lines',(s.line_count||0).toLocaleString()],['Est. Tokens',(s.estimated_tokens||0).toLocaleString()],['Size',s.file_size_mb+' MB']]
+    : [['Data Type','TABULAR'],['Rows',(s.row_count||0).toLocaleString()],['Columns',s.column_count||'—'],['Size',s.file_size_mb+' MB']];
+
+  document.getElementById('summary-metrics').innerHTML =
+    pairs.map(([l,v]) => `<div class="metric"><div class="metric-value">${v}</div><div class="metric-label">${l}</div></div>`).join('');
+
+  const wrap = document.getElementById('sample-table-wrap');
+  if (s.sample_rows && s.sample_rows.length) {
+    const cols = Object.keys(s.sample_rows[0]);
+    wrap.innerHTML = `<table><thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${
+      s.sample_rows.map(r=>`<tr>${cols.map(c=>`<td>${r[c]??''}</td>`).join('')}</tr>`).join('')
+    }</tbody></table>`;
+  } else if (s.sample_lines) {
+    wrap.innerHTML = `<pre style="color:var(--text);font-size:11px;line-height:1.8;max-height:120px;overflow:auto">${s.sample_lines.join('\n')}</pre>`;
+  } else {
+    wrap.innerHTML = '<p class="text-dim">No sample data available.</p>';
+  }
+}
+
+// ── Domain detection ──────────────────────────────────────────────────────────
+async function runDomainDetection() {
+  if (!sessionId) return;
+  try {
+    // Quick profile for detection
+    const pRes = await fetch(API + '/profile/' + sessionId + '?sample_size=20000');
+    if (pRes.ok) { currentProfile = await pRes.json(); }
+
+    const res = await fetch(API + '/domain/' + sessionId);
+    if (!res.ok) return;
+    currentDomainDetection = await res.json();
+    renderDomainDetection(currentDomainDetection);
+  } catch (e) {
+    // Silent — domain detection is advisory
+  }
+}
+
+function renderDomainDetection(d) {
+  const card    = document.getElementById('domain-detection-card');
+  const content = document.getElementById('domain-detection-content');
+  card.classList.remove('hidden');
+
+  const pct = (d.confidence * 100).toFixed(2);
+  const colors = {'Healthcare':'#38bdf8','Finance':'#f59e0b','Social Media':'#c084fc','Computer Vision':'#34d399','Music/Audio':'#fb7185','E-Commerce':'#fbbf24','NLP/Text':'#60a5fa','General':'#6b7280'};
+
+  const confClass = d.confidence > 0.6 ? 'risk-LOW' : d.confidence > 0.35 ? 'risk-MEDIUM' : 'risk-HIGH';
+  const confLabel = d.confidence > 0.6 ? 'HIGH CONFIDENCE' : d.confidence > 0.35 ? 'MODERATE' : 'LOW CONFIDENCE';
+
+  let html = `<div class="flex items-center gap-16 mb-16">
+    <div>
+      <div style="font-family:var(--font-display);font-size:20px;font-weight:800;color:var(--accent)">${d.detected_domain}</div>
+      <div style="font-size:11px;color:var(--text-dim)">confidence ${pct}%</div>
+    </div>
+    <span class="risk-badge ${confClass}">${confLabel}</span>
+  </div>`;
+
+  const ranked = d.ranked || [];
+  ranked.slice(0, 7).forEach(function(item) {
+    const dom = item[0], conf = item[1];
+    const barPct = (conf * 100).toFixed(4);
+    const color  = colors[dom] || '#6b7280';
+    html += `<div class="domain-bar-row">
+      <span class="domain-bar-label">${dom}</span>
+      <div class="domain-bar-track"><div class="domain-bar-fill" style="width:${(conf*100).toFixed(2)}%;background:${color}"></div></div>
+      <span class="domain-bar-val">${barPct}%</span>
+    </div>`;
+  });
+
+  const evidence = d.evidence || [];
+  if (evidence.length) {
+    html += `<div class="mt-8" style="font-size:11px;color:var(--text-dim)">${evidence.map(e=>'→ '+e).join('<br>')}</div>`;
+  }
+  html += `<div class="mt-8" style="font-size:11px;color:var(--text-dim)">You can override this in AI Config — a mismatch warning will appear if domains conflict.</div>`;
+
+  content.innerHTML = html;
+}
+
+// ── Live domain mismatch check ────────────────────────────────────────────────
+async function liveCheckDomain() {
+  if (!sessionId || !currentDomainDetection) return;
+  const selected = document.getElementById('domain').value;
+  try {
+    const res = await fetch(API + '/domain/check/' + sessionId, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({user_selected_domain: selected}),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    renderMismatchBanner(data.mismatch_check);
+  } catch (e) { /* silent */ }
+}
+
+function renderMismatchBanner(m) {
+  const el = document.getElementById('domain-mismatch-banner');
+  if (!m || !m.mismatch) { el.innerHTML = ''; el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  const icon = m.severity === 'HIGH' ? '⛔' : m.severity === 'MEDIUM' ? '⚠' : 'ℹ';
+  el.innerHTML = `<div class="mismatch-banner ${m.severity}">
+    <span class="mismatch-icon">${icon}</span>
+    <div>
+      <div class="mismatch-title">DOMAIN MISMATCH — ${m.severity} SEVERITY</div>
+      <div style="font-size:12px;color:var(--text);margin-bottom:4px">${m.message}</div>
+      <div style="font-size:11px;color:var(--text-dim)">
+        Detected: <strong style="color:var(--accent)">${m.detected_domain}</strong>
+        (${((m.confidence||0)*100).toFixed(2)}%) ·
+        You selected: <strong style="color:var(--warn)">${m.user_selected_domain}</strong>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── Profile ───────────────────────────────────────────────────────────────────
+async function runProfile() {
+  if (!sessionId) { toast('Upload a dataset first', true); return; }
+  showLoading('Running data profiler...');
+  try {
+    let res = await fetch(API + '/profile/' + sessionId);
+    currentProfile = await res.json();
+    if (!res.ok) throw new Error(currentProfile.detail);
+
+    res = await fetch(API + '/quality/' + sessionId);
+    currentQuality = await res.json();
+    if (!res.ok) throw new Error(currentQuality.detail);
+
+    renderProfile(currentProfile, currentQuality);
+    showPage('profile');
+    toast('Profile complete');
+  } catch (e) { toast('Profile error: ' + e.message, true); }
+  finally { hideLoading(); }
+}
+
+function renderProfile(p, q) {
+  const el = document.getElementById('profile-content');
+  const sc = q.total_score || 0;
+  const sc4 = Number(sc).toFixed(4);
+  const scoreColor = sc >= 75 ? 'var(--accent3)' : sc >= 55 ? 'var(--warn)' : 'var(--danger)';
+  const raw = q.raw_inputs || {};
+
+  let html = `<div class="grid-2 mb-8">
+    <div class="card">
+      <div class="card-title">Quality Score</div>
+      <div class="gauge-container">
+        <div class="gauge-ring" style="background:conic-gradient(${scoreColor} ${sc*3.6}deg,var(--border) 0deg)">
+          <div class="gauge-inner">
+            <div class="gauge-score" style="color:${scoreColor}">${sc4}</div>
+            <div class="gauge-label">Grade: ${q.grade || '?'}</div>
+          </div>
+        </div>
+      </div>
+      ${Object.entries(q.dimensions || {}).map(function([k,v]) {
+        const n = Number(v);
+        const c = n>=70?'var(--accent3)':n>=50?'var(--warn)':'var(--danger)';
+        return `<div class="score-row">
+          <span class="score-row-label">${k.replace(/_/g,' ')}</span>
+          <div class="score-row-bar"><div class="score-row-fill" style="width:${n}%;background:${c}"></div></div>
+          <span class="score-row-val" style="color:${c}">${n.toFixed(4)}</span>
+        </div>`;
+      }).join('')}
+      ${Object.keys(raw).length ? `<div class="mt-16" style="font-size:11px;color:var(--text-dim)">
+        ${Object.entries(raw).map(function([k,v]){ return '<div>'+k.replace(/_/g,' ')+': <strong style="color:var(--text)">'+(typeof v==='number'?Number(v).toFixed(6):v)+'</strong></div>'; }).join('')}
+      </div>` : ''}
+    </div>
+    <div class="card">
+      <div class="card-title">Dataset Metrics</div>
+      <div class="grid-2">
+        ${p.data_type === 'tabular' ? `
+          <div class="metric"><div class="metric-value">${(p.total_rows||0).toLocaleString()}</div><div class="metric-label">Total Rows</div></div>
+          <div class="metric"><div class="metric-value">${p.column_count||0}</div><div class="metric-label">Columns</div></div>
+          <div class="metric"><div class="metric-value">${Number(p.duplicate_pct||0).toFixed(4)}%</div><div class="metric-label">Duplicates</div></div>
+          <div class="metric"><div class="metric-value">${(p.numeric_columns||[]).length}</div><div class="metric-label">Numeric Cols</div></div>
+        ` : `
+          <div class="metric"><div class="metric-value">${(p.sampled_lines||0).toLocaleString()}</div><div class="metric-label">Lines</div></div>
+          <div class="metric"><div class="metric-value">${Number(p.avg_word_count||0).toFixed(2)}</div><div class="metric-label">Avg Words</div></div>
+          <div class="metric"><div class="metric-value">${Number(p.duplicate_pct||0).toFixed(4)}%</div><div class="metric-label">Duplicates</div></div>
+          <div class="metric"><div class="metric-value">${(p.vocab_size_estimate||0).toLocaleString()}</div><div class="metric-label">Vocab Size</div></div>
+        `}
+      </div>
+      ${(q.issues && q.issues.length) ? `<div class="mt-16"><div class="card-title">Issues</div>
+        <ul class="issue-list">${q.issues.map(i=>`<li class="issue-item"><div class="issue-marker marker-warning"></div><span>${i}</span></li>`).join('')}</ul>
+      </div>` : ''}
+    </div>
+  </div>`;
+
+  if (p.distributions && Object.keys(p.distributions).length) {
+    html += `<div class="card mt-16"><div class="card-title">Feature Distributions</div><div id="dist-charts" class="grid-3"></div></div>`;
+  }
+  if (p.correlation) {
+    html += `<div class="card mt-16"><div class="card-title">Correlation Matrix</div><div id="corr-heatmap" style="height:360px"></div></div>`;
+  }
+  if (p.class_balance && Object.keys(p.class_balance).length) {
+    html += `<div class="card mt-16"><div class="card-title">Class Balance</div><div id="balance-charts" class="grid-3"></div></div>`;
+  }
+
+  el.innerHTML = html;
+
+  if (p.distributions) {
+    var wrap = document.getElementById('dist-charts');
+    Object.entries(p.distributions).slice(0,6).forEach(function([col,d]) {
+      var div = document.createElement('div'); div.style.height='190px'; wrap.appendChild(div);
+      Plotly.newPlot(div,
+        [{x:d.bins.slice(0,-1),y:d.counts,type:'bar',marker:{color:'rgba(0,212,255,.6)',line:{color:'#00d4ff',width:1}}}],
+        {paper_bgcolor:'transparent',plot_bgcolor:'transparent',margin:{t:32,b:28,l:28,r:8},
+         title:{text:`${col} (μ=${Number(d.mean).toFixed(4)})`,font:{color:'#4a6278',size:10,family:'JetBrains Mono'}},
+         xaxis:{color:'#4a6278',showgrid:false},yaxis:{color:'#4a6278',showgrid:true,gridcolor:'#1e2d3d'},
+         font:{family:'JetBrains Mono',color:'#c9d8e8',size:10}},
+        {responsive:true,displayModeBar:false});
+    });
+  }
+
+  if (p.correlation) {
+    Plotly.newPlot('corr-heatmap',
+      [{z:p.correlation.matrix,x:p.correlation.columns,y:p.correlation.columns,type:'heatmap',
+        colorscale:[['0','#ff3b5c'],['0.5','#080c10'],['1','#00d4ff']],zmid:0}],
+      {paper_bgcolor:'transparent',plot_bgcolor:'transparent',margin:{t:10,b:60,l:80,r:10},
+       xaxis:{color:'#4a6278'},yaxis:{color:'#4a6278'},
+       font:{family:'JetBrains Mono',color:'#c9d8e8',size:10}},
+      {responsive:true,displayModeBar:false});
+  }
+
+  if (p.class_balance) {
+    var wrap2 = document.getElementById('balance-charts');
+    Object.entries(p.class_balance).slice(0,3).forEach(function([col,d]) {
+      var div = document.createElement('div'); div.style.height='190px'; wrap2.appendChild(div);
+      Plotly.newPlot(div,
+        [{labels:d.labels,values:d.proportions,type:'pie',hole:.5,
+          marker:{colors:['#00d4ff','#ff6b35','#39ff14','#ffbe00','#ff3b5c','#a78bfa']},
+          textfont:{family:'JetBrains Mono',size:9}}],
+        {paper_bgcolor:'transparent',margin:{t:28,b:8,l:8,r:8},
+         title:{text:col,font:{color:'#4a6278',size:10,family:'JetBrains Mono'}},
+         showlegend:false,font:{family:'JetBrains Mono',color:'#c9d8e8'}},
+        {responsive:true,displayModeBar:false});
+    });
+  }
+}
+
+// ── Multi-Domain ──────────────────────────────────────────────────────────────
+async function runMultiDomain() {
+  if (!sessionId) { toast('Upload a dataset first', true); return; }
+  showLoading('Segmenting dataset by domain...');
+  try {
+    const res  = await fetch(API + '/analyze/multi_domain/' + sessionId, {method:'POST'});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Multi-domain analysis failed');
+    renderMultiDomain(data);
+    showPage('multi');
+    toast('Multi-domain analysis complete');
+  } catch (e) { toast('Error: ' + e.message, true); }
+  finally { hideLoading(); }
+}
+
+function renderMultiDomain(d) {
+  if (d.error) { document.getElementById('multi-content').innerHTML = `<p class="text-danger">Error: ${d.error}</p>`; return; }
+  const el = document.getElementById('multi-content');
+  const groups = d.ranked_groups || [];
+
+  var html = `<div class="grid-4 mb-16">
+    <div class="metric"><div class="metric-value">${d.n_domain_groups||0}</div><div class="metric-label">Domain Groups</div></div>
+    <div class="metric"><div class="metric-value">${(d.total_rows||0).toLocaleString()}</div><div class="metric-label">Total Rows</div></div>
+    <div class="metric"><div class="metric-value">${d.total_columns||0}</div><div class="metric-label">Total Columns</div></div>
+    <div class="metric"><div class="metric-value" style="color:${(d.weighted_quality_score||0)>=70?'var(--accent3)':(d.weighted_quality_score||0)>=55?'var(--warn)':'var(--danger)'}">
+      ${Number(d.weighted_quality_score||0).toFixed(4)}</div><div class="metric-label">Weighted Quality</div></div>
+  </div>
+
+  <div class="card mb-16">
+    <div class="card-title">Domain Groups Ranked</div>
+    <table><thead><tr><th>Rank</th><th>Domain</th><th>Columns</th><th>Share</th><th>Quality</th><th>Sufficiency</th><th>Rank Score</th></tr></thead>
+    <tbody>${groups.map(function(g) {
+      var share = ((d.domain_column_distribution || {})[g.domain] || 0) * 100;
+      var sufClass = (g.sufficiency === 'SUFFICIENT' || g.sufficiency === 'ABUNDANT') ? 'risk-LOW' : g.sufficiency === 'MARGINAL' ? 'risk-MEDIUM' : 'risk-CRITICAL';
+      var qColor = g.quality >= 70 ? 'var(--accent3)' : g.quality >= 55 ? 'var(--warn)' : 'var(--danger)';
+      return `<tr>
+        <td>${g.rank}</td>
+        <td><strong style="color:var(--accent)">${g.domain}</strong></td>
+        <td>${(g.columns||[]).length}</td>
+        <td>${share.toFixed(2)}%</td>
+        <td style="color:${qColor}">${Number(g.quality).toFixed(4)}</td>
+        <td><span class="risk-badge ${sufClass}">${g.sufficiency}</span></td>
+        <td>${Number(g.rank_score).toFixed(6)}</td>
+      </tr>`;
+    }).join('')}</tbody></table>
+  </div>`;
+
+  // Per-group detail cards
+  groups.forEach(function(g) {
+    var gr = (d.group_reports || {})[g.domain];
+    if (!gr) return;
+    var q = gr.quality || {}, s = gr.sufficiency || {}, prof = gr.profile || {};
+    var qColor = (q.total_score||0) >= 70 ? 'var(--accent3)' : (q.total_score||0) >= 55 ? 'var(--warn)' : 'var(--danger)';
+    var sufClass = (s.verdict === 'SUFFICIENT' || s.verdict === 'ABUNDANT') ? 'risk-LOW' : s.verdict === 'MARGINAL' ? 'risk-MEDIUM' : 'risk-CRITICAL';
+
+    html += `<div class="domain-group-card">
+      <div class="flex items-center justify-between mb-8">
+        <div>
+          <span style="font-family:var(--font-display);font-size:14px;font-weight:700;color:var(--text-bright)">${g.domain}</span>
+          <span style="margin-left:8px;font-size:11px;color:var(--text-dim)">${(gr.columns||[]).length} columns · ${((gr.column_share||0)*100).toFixed(2)}% of dataset</span>
+        </div>
+        <div class="flex gap-8 items-center">
+          <span style="font-family:var(--font-display);font-size:18px;font-weight:800;color:${qColor}">${Number(q.total_score||0).toFixed(4)}</span>
+          <span class="risk-badge ${sufClass}">${s.verdict||'?'}</span>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">
+        Columns: ${(gr.columns||[]).slice(0,7).join(', ')}${(gr.columns||[]).length > 7 ? ' +' + ((gr.columns||[]).length-7) + ' more' : ''}
+      </div>
+      <div class="grid-4" style="gap:8px">
+        ${Object.entries(q.dimensions || {}).map(function([k,v]) {
+          var n = Number(v);
+          var c = n>=70?'var(--accent3)':n>=50?'var(--warn)':'var(--danger)';
+          return `<div style="padding:8px;background:var(--bg);border:1px solid var(--border)">
+            <div style="font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim)">${k.replace(/_/g,' ')}</div>
+            <div style="font-family:var(--font-display);font-size:13px;font-weight:700;color:${c}">${n.toFixed(4)}</div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:var(--text-dim)">
+        ${s.note||''} · avg missing: ${Number(prof.avg_missing_pct||0).toFixed(4)}% · dupes: ${Number(prof.duplicate_pct||0).toFixed(4)}% · coverage: ${Number(prof.data_coverage||0).toFixed(6)}
+      </div>
+    </div>`;
+  });
+
+  if (d.recommendations && d.recommendations.length) {
+    html += `<div class="card mt-16"><div class="card-title">Recommendations</div>
+      ${d.recommendations.map(function(r,i){ return `<div class="rec-item"><span class="rec-index">${String(i+1).padStart(2,'0')}</span>${r}</div>`; }).join('')}
+    </div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+// ── Risks ─────────────────────────────────────────────────────────────────────
+async function runAllRisks() {
+  if (!sessionId) { toast('Upload a dataset first', true); return; }
+  showLoading('Running risk audit...');
+  try {
+    var [adv, mem, fair, cont] = await Promise.all([
+      fetch(API+'/analyze/adversarial/'+sessionId,{method:'POST'}).then(r=>r.json()),
+      fetch(API+'/analyze/memorization/'+sessionId+'?param_count_millions=7000',{method:'POST'}).then(r=>r.json()),
+      fetch(API+'/analyze/fairness/'+sessionId,{method:'POST'}).then(r=>r.json()),
+      fetch(API+'/analyze/contamination/'+sessionId,{method:'POST'}).then(r=>r.json()),
+    ]);
+    renderRisks(adv, mem, fair, cont);
+    toast('Risk audit complete');
+  } catch (e) { toast('Risk audit error: ' + e.message, true); }
+  finally { hideLoading(); }
+}
+
+function riskCard(title, data, scoreKey, scoreLabel) {
+  var score = data[scoreKey];
+  return `<div class="card">
+    <div class="card-title">${title}</div>
+    <div class="flex items-center justify-between mb-8">
+      <span class="risk-badge risk-${data.risk_level||'UNKNOWN'}">${data.risk_level||'UNKNOWN'}</span>
+      ${score != null ? `<span style="font-family:var(--font-display);font-size:20px;font-weight:800;color:var(--text-bright)">${Number(score).toFixed(4)} <span style="font-size:11px;color:var(--text-dim)">${scoreLabel}</span></span>` : ''}
+    </div>
+    ${(data.issues||[]).length ? `<ul class="issue-list">${data.issues.map(i=>`<li class="issue-item"><div class="issue-marker marker-warning"></div><span>${i}</span></li>`).join('')}</ul>` : '<p class="text-dim" style="font-size:11px">No issues detected</p>'}
+    ${(data.recommendations||[]).length ? `<div class="mt-16">${data.recommendations.map((r,i)=>`<div class="rec-item"><span class="rec-index">${String(i+1).padStart(2,'0')}</span>${r}</div>`).join('')}</div>` : ''}
+    ${data.method ? `<p class="text-dim mt-8" style="font-size:10px">METHOD: ${data.method}</p>` : ''}
+  </div>`;
+}
+
+function renderRisks(adv, mem, fair, cont) {
+  document.getElementById('risks-content').innerHTML = `<div class="grid-2">
+    ${riskCard('Adversarial Vulnerability', adv, 'vulnerability_score', '/ 100')}
+    ${riskCard('Memorization Risk', mem, 'privacy_leakage_score', '/ 100')}
+    ${riskCard('Fairness Drift', fair, 'drift_risk_score', '/ 100')}
+    ${riskCard('Benchmark Contamination', cont, 'contamination_score', '/ 100')}
+  </div>
+  ${mem.gdpr_compliance_flag ? `<div class="verdict-banner verdict-NOT_READY mt-16"><span class="verdict-icon">⚠</span><div><div class="verdict-title" style="color:var(--danger)">GDPR Flag</div><div class="verdict-msg">High memorization risk — apply DP-SGD before training.</div></div></div>` : ''}`;
+}
+
+// ── Compatibility ─────────────────────────────────────────────────────────────
+async function runCompatibility() {
+  if (!sessionId) { toast('Upload a dataset first', true); return; }
+  showLoading('Evaluating compatibility...');
+  var cfg = getAIConfig();
+  try {
+    var [compat, cost] = await Promise.all([
+      fetch(API+'/compatibility/'+sessionId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)}).then(r=>r.json()),
+      fetch(API+'/analyze/cost/'+sessionId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)}).then(r=>r.json()),
+    ]);
+    if (compat.domain_mismatch) renderMismatchBanner(compat.domain_mismatch);
+    renderCompatibility(compat);
+    renderCost(cost);
+    document.getElementById('compat-result').classList.remove('hidden');
+    document.getElementById('cost-result').classList.remove('hidden');
+    toast('Compatibility evaluated');
+  } catch (e) { toast('Error: ' + e.message, true); }
+  finally { hideLoading(); }
+}
+
+function renderCompatibility(c) {
+  var el = document.getElementById('compat-result');
+  var sc = c.compatibility_score || 0;
+  var scoreColor = sc >= 75 ? 'var(--accent3)' : sc >= 45 ? 'var(--warn)' : 'var(--danger)';
+  var suitClass = {SUITABLE:'risk-LOW', PARTIALLY_SUITABLE:'risk-MEDIUM', NOT_SUITABLE:'risk-CRITICAL'};
+
+  el.innerHTML = `<div class="card"><div class="card-title">Compatibility Report</div>
+    <div class="grid-2">
+      <div>
+        <div class="flex items-center gap-16 mb-8">
+          <div style="font-family:var(--font-display);font-size:42px;font-weight:800;color:${scoreColor};line-height:1">${Number(sc).toFixed(4)}</div>
+          <div>
+            <span class="risk-badge ${suitClass[c.suitability]||'risk-UNKNOWN'}">${(c.suitability||'').replace(/_/g,' ')}</span><br><br>
+            <span class="risk-badge risk-${c.size_verdict==='ENOUGH'?'LOW':c.size_verdict==='MARGINAL'?'MEDIUM':'CRITICAL'}">${(c.size_verdict||'').replace(/_/g,' ')}</span>
+          </div>
+        </div>
+        ${Object.entries(c.score_breakdown||{}).map(function([k,v]) {
+          var n = Number(v.score);
+          var col = n>=70?'var(--accent3)':n>=45?'var(--warn)':'var(--danger)';
+          return `<div class="score-row">
+            <span class="score-row-label">${k.replace(/_/g,' ')}</span>
+            <div class="score-row-bar"><div class="score-row-fill" style="width:${n}%;background:${col}"></div></div>
+            <span class="score-row-val" style="color:${col}">${n.toFixed(4)}</span>
+          </div>`;
+        }).join('')}
+      </div>
+      <div>
+        <div class="card-title">Issues</div>
+        <ul class="issue-list">${(c.issues||[]).map(i=>`<li class="issue-item"><div class="issue-marker ${i.includes('CRITICAL')||i.includes('MISMATCH')?'marker-critical':'marker-warning'}"></div><span>${i}</span></li>`).join('')||'<li class="issue-item"><span class="text-ok">No issues</span></li>'}</ul>
+        ${c.best_model_recommendation ? `<div class="mt-16 card-title">Recommended Model</div>
+          <div class="rec-item mt-8"><span class="rec-index">→</span>${c.best_model_recommendation.ai_type} · ${c.best_model_recommendation.model_size} · ${c.best_model_recommendation.architecture}<br><span class="text-dim">${c.best_model_recommendation.rationale}</span></div>` : ''}
+        ${c.domain_detection ? `<div class="mt-16" style="font-size:11px;color:var(--text-dim)">Detected domain: <strong style="color:var(--accent)">${c.domain_detection.detected_domain}</strong> (${((c.domain_detection.confidence||0)*100).toFixed(2)}%)</div>` : ''}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderCost(cost) {
+  var el = document.getElementById('cost-result');
+  // NOTE: keep color in separate var — no semicolons inside template literals
+  var suffColors = {SUFFICIENT:'var(--accent3)', MARGINAL:'var(--warn)', INSUFFICIENT:'var(--accent2)', CRITICALLY_INSUFFICIENT:'var(--danger)'};
+  var suffColor  = suffColors[cost.data_sufficiency] || 'var(--text-bright)';
+  var suffText   = (cost.data_sufficiency || '').replace(/_/g, ' ');
+
+  el.innerHTML = `<div class="card"><div class="card-title">Training Cost Estimate (Chinchilla Scaling Laws)</div>
+    <div class="grid-4 mb-8">
+      <div class="metric"><div class="metric-value" style="color:${suffColor};font-size:16px">${suffText}</div><div class="metric-label">Data Sufficiency</div></div>
+      <div class="metric"><div class="metric-value">${Number(cost.chinchilla_ratio||0).toFixed(6)}</div><div class="metric-label">Chinchilla Ratio</div></div>
+      <div class="metric"><div class="metric-value">${cost.total_flops_petaflops||'—'}</div><div class="metric-label">PetaFLOPs</div></div>
+      <div class="metric"><div class="metric-value">${(cost.token_count||0).toLocaleString()}</div><div class="metric-label">Token Count</div></div>
+    </div>
+    <div class="card-title mt-16">GPU Cost Estimates</div>
+    <table><thead><tr><th>GPU</th><th>Hours</th><th>Est. Cost (USD)</th></tr></thead>
+    <tbody>${Object.entries(cost.gpu_estimates||{}).map(function([gpu,est]){ return `<tr><td>${gpu}</td><td>${Number(est.hours||0).toLocaleString()}</td><td>$${Number(est.cost_usd||0).toLocaleString()}</td></tr>`; }).join('')}</tbody></table>
+    <div class="mt-8" style="font-size:11px;color:var(--text-dim)">${cost.sufficiency_note||''}</div>
+  </div>`;
+}
+
+// ── Report ────────────────────────────────────────────────────────────────────
+async function generateReport() {
+  if (!sessionId) { toast('Upload and configure AI first', true); return; }
+  showLoading('Generating full report...');
+  try {
+    var res  = await fetch(API+'/report/'+sessionId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(getAIConfig())});
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Report generation failed');
+    renderReport(data);
+    toast('Report generated');
+  } catch (e) { toast('Error: ' + e.message, true); }
+  finally { hideLoading(); }
+}
+
+function renderReport(r) {
+  var es = r.executive_summary || {};
+  var v  = r.verdict || {};
+  var di = r.domain_intelligence || {};
+  var icons = {READY:'✓', CONDITIONALLY_READY:'⚡', NOT_READY:'✗'};
+  var cols  = {READY:'var(--accent3)', CONDITIONALLY_READY:'var(--warn)', NOT_READY:'var(--danger)'};
+
+  document.getElementById('report-content').innerHTML = `
+    <div class="verdict-banner verdict-${v.status||''} mb-8">
+      <span class="verdict-icon">${icons[v.status]||'?'}</span>
+      <div>
+        <div class="verdict-title" style="color:${cols[v.status]||'var(--text-bright)'}">${(v.status||'').replace(/_/g,' ')}</div>
+        <div class="verdict-msg">${v.message||''}</div>
+      </div>
+    </div>
+
+    ${(di.mismatch_check && di.mismatch_check.mismatch) ? `<div class="mismatch-banner MEDIUM mb-8">
+      <span class="mismatch-icon">⚠</span>
+      <div>
+        <div class="mismatch-title">DOMAIN MISMATCH IN THIS REPORT</div>
+        <div style="font-size:12px;color:var(--text)">${di.mismatch_check.message||''}</div>
+      </div>
+    </div>` : ''}
+
+    <div class="grid-4 mt-16">
+      <div class="metric"><div class="metric-value">${Number(es.compatibility_score||0).toFixed(4)}</div><div class="metric-label">Compatibility</div></div>
+      <div class="metric"><div class="metric-value">${Number(es.data_quality_score||0).toFixed(4)}</div><div class="metric-label">Quality Score</div></div>
+      <div class="metric"><div class="metric-value">${es.total_issues_found||0}</div><div class="metric-label">Total Issues</div></div>
+      <div class="metric"><div class="metric-value" style="color:var(--danger)">${es.critical_issues||0}</div><div class="metric-label">Critical</div></div>
+    </div>
+
+    <div class="grid-2 mt-16">
+      <div class="card">
+        <div class="card-title text-danger">Critical Issues</div>
+        <ul class="issue-list">${(r.prioritized_issues&&r.prioritized_issues.critical&&r.prioritized_issues.critical.length)
+          ? r.prioritized_issues.critical.map(i=>`<li class="issue-item"><div class="issue-marker marker-critical"></div><span>${i}</span></li>`).join('')
+          : '<li class="issue-item"><span class="text-ok">No critical issues</span></li>'}</ul>
+        ${(r.prioritized_issues&&r.prioritized_issues.warnings&&r.prioritized_issues.warnings.length)?`<div class="card-title mt-16">Warnings</div>
+          <ul class="issue-list">${r.prioritized_issues.warnings.slice(0,6).map(i=>`<li class="issue-item"><div class="issue-marker marker-warning"></div><span>${i}</span></li>`).join('')}</ul>`:''}
+      </div>
+      <div class="card">
+        <div class="card-title">Recommendations</div>
+        ${(r.recommendations||[]).slice(0,8).map((rec,i)=>`<div class="rec-item"><span class="rec-index">${String(i+1).padStart(2,'0')}</span>${rec}</div>`).join('')||'<p class="text-dim">No recommendations generated.</p>'}
+      </div>
+    </div>
+
+    <div class="card mt-16">
+      <div class="card-title">Risk Scorecard</div>
+      <table><thead><tr><th>Risk Type</th><th>Level</th><th>Score</th></tr></thead>
+      <tbody>${Object.entries((r.risk_audit&&r.risk_audit.risk_scores)||{}).map(function([k,v]) {
+        var lvl = ((r.risk_audit||{})[k]||{}).risk_level || 'UNKNOWN';
+        return `<tr><td>${k.replace(/_/g,' ')}</td><td><span class="risk-badge risk-${lvl}">${lvl}</span></td><td>${Number(v||0).toFixed(4)}/100</td></tr>`;
+      }).join('')}</tbody></table>
+    </div>
+
+    ${di.detection ? `<div class="card mt-16"><div class="card-title">Domain Intelligence</div>
+      <div style="font-size:12px;color:var(--text)">
+        Auto-detected: <strong style="color:var(--accent)">${di.detection.detected_domain}</strong>
+        · confidence <strong>${((di.detection.confidence||0)*100).toFixed(4)}%</strong>
+      </div>
+    </div>` : ''}
+
+    <div class="mt-24">
+      <button class="btn btn-ghost" onclick="copyReport()">Copy JSON Report</button>
+    </div>`;
+
+  window._lastReport = r;
+}
+
+function copyReport() {
+  if (!window._lastReport) { toast('No report to copy', true); return; }
+  navigator.clipboard.writeText(JSON.stringify(window._lastReport, null, 2))
+    .then(function() { toast('Report copied to clipboard'); })
+    .catch(function() { toast('Copy failed — try manually', true); });
+}
+
+// ── Simulation ────────────────────────────────────────────────────────────────
+async function runSimulation() {
+  if (!sessionId) { toast('Upload a dataset first', true); return; }
+  showLoading('Running simulation...');
+  var cfg = {
+    session_id: sessionId,
+    ai_config: {
+      ai_type:              document.getElementById('sim-ai-type').value,
+      model_size:           document.getElementById('sim-model-size').value,
+      architecture:         document.getElementById('sim-arch').value,
+      domain:               document.getElementById('sim-domain').value,
+      task_type:            document.getElementById('sim-task').value,
+      param_count_millions: parseFloat(document.getElementById('sim-params').value) || 7000,
+    }
+  };
+  try {
+    var res  = await fetch(API+'/simulate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Simulation failed');
+
+    var c  = data.compatibility || {}, m = data.memorization || {}, cost = data.cost || {}, dm = data.domain_mismatch;
+    var sc = c.compatibility_score || 0;
+    var scoreColor = sc >= 75 ? 'var(--accent3)' : sc >= 45 ? 'var(--warn)' : 'var(--danger)';
+
+    document.getElementById('sim-result-panel').innerHTML = `
+      <div class="card-title">Simulation Results</div>
+      ${dm && dm.mismatch ? `<div class="mismatch-banner ${dm.severity}" style="margin-bottom:10px">
+        <span class="mismatch-icon">⚠</span>
+        <div><div class="mismatch-title">DOMAIN MISMATCH — ${dm.severity}</div>
+        <div style="font-size:11px;color:var(--text)">${dm.recommendation||dm.message||''}</div></div>
+      </div>` : ''}
+      <div class="grid-2 mb-8">
+        <div class="metric"><div class="metric-value" style="color:${scoreColor}">${Number(sc).toFixed(4)}</div><div class="metric-label">Compatibility</div></div>
+        <div class="metric"><div class="metric-value">${Number(m.privacy_leakage_score||0).toFixed(4)}</div><div class="metric-label">Mem. Risk</div></div>
+      </div>
+      <div class="score-row"><span class="score-row-label">Suitability</span><span class="risk-badge risk-${c.suitability==='SUITABLE'?'LOW':c.suitability==='PARTIALLY_SUITABLE'?'MEDIUM':'CRITICAL'}">${(c.suitability||'').replace(/_/g,' ')}</span></div>
+      <div class="score-row"><span class="score-row-label">Memorization</span><span class="risk-badge risk-${m.risk_level||'UNKNOWN'}">${m.risk_level||'—'}</span></div>
+      <div class="score-row"><span class="score-row-label">Chinchilla Ratio</span><span class="text-bright">${Number(cost.chinchilla_ratio||0).toFixed(6)}</span></div>
+      <div class="score-row"><span class="score-row-label">Data Sufficiency</span><span class="risk-badge risk-${cost.data_sufficiency==='SUFFICIENT'?'LOW':cost.data_sufficiency==='MARGINAL'?'MEDIUM':'CRITICAL'}">${(cost.data_sufficiency||'').replace(/_/g,' ')}</span></div>
+      ${(c.issues||[]).length?`<div class="mt-16"><div class="card-title">Issues</div><ul class="issue-list">${c.issues.slice(0,3).map(i=>`<li class="issue-item"><div class="issue-marker marker-warning"></div><span>${i}</span></li>`).join('')}</ul></div>`:''}`;
+    toast('Simulation complete');
+  } catch (e) { toast('Simulation error: ' + e.message, true); }
+  finally { hideLoading(); }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function getAIConfig() {
+  return {
+    ai_type:              document.getElementById('ai-type').value,
+    model_size:           document.getElementById('model-size').value,
+    architecture:         document.getElementById('architecture').value,
+    domain:               document.getElementById('domain').value,
+    task_type:            document.getElementById('task-type').value,
+    param_count_millions: parseFloat(document.getElementById('param-count').value) || 7000,
+  };
+}
+function showLoading(msg) { document.getElementById('loading-text').textContent = msg || 'Processing...'; document.getElementById('loading').classList.add('active'); }
+function hideLoading() { document.getElementById('loading').classList.remove('active'); }
+function setStatus(active, label) { document.getElementById('status-dot').className = 'status-dot' + (active ? ' active' : ''); document.getElementById('status-text').textContent = label || (active ? 'Ready' : 'No dataset loaded'); }
+function toast(msg, isError) { var el = document.getElementById('toast'); el.textContent = msg; el.style.borderLeftColor = isError ? 'var(--danger)' : 'var(--accent)'; el.style.display = 'block'; clearTimeout(el._t); el._t = setTimeout(function(){ el.style.display = 'none'; }, 4000); }
+</script>
+</body>
+</html>
